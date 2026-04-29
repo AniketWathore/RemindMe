@@ -1,0 +1,2 @@
+[console_scripts]
+remindme = remindme.cli:main

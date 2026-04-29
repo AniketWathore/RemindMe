@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/remindme/__init__.py
+src/remindme/cli.py
+src/remindme_cli.egg-info/PKG-INFO
+src/remindme_cli.egg-info/SOURCES.txt
+src/remindme_cli.egg-info/dependency_links.txt
+src/remindme_cli.egg-info/entry_points.txt
+src/remindme_cli.egg-info/top_level.txt

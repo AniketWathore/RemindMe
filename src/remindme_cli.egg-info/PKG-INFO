@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: remindme-cli
+Version: 0.1.0
+Summary: Command line reminders with desktop notifications
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# RemindMe
+
+Command line reminder tool with desktop notifications.
+
+## Usage
+
+```sh
+remindme --help
+remindme -set today at 14 00 as drink coffee
+remindme -list
+remindme -delete
+```
+
+## Install (pipx)
+
+```sh
+pipx install .
+```

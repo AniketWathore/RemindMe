@@ -1,0 +1,34 @@
+{
+    "reminders": [
+        {
+            "demo": {
+                "id": 1,
+                "date": "29/04/2026",
+                "hour": 18,
+                "minute": 30,
+                "message": "demo",
+                "fired": true
+            }
+        },
+        {
+            "testing 2": {
+                "id": 2,
+                "date": "29/04/2026",
+                "hour": 18,
+                "minute": 32,
+                "message": "testing 2",
+                "fired": true
+            }
+        },
+        {
+            "testing3": {
+                "id": 3,
+                "date": "29/04/2026",
+                "hour": 18,
+                "minute": 43,
+                "message": "testing3",
+                "fired": true
+            }
+        }
+    ]
+}

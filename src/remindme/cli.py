@@ -1,12 +1,16 @@
 import datetime as dt
-import re
 import json
-import curses
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
+
+try:
+    import curses
+except Exception:
+    curses = None
 
 
 today = dt.date.today()
@@ -26,9 +30,31 @@ def resolve_date(date_str: str) -> dt.date:
     return dt.date(today.year, int(month_str), int(day_str))
 
 
+def get_data_dir() -> str:
+    home = os.path.expanduser("~")
+    if sys.platform.startswith("win"):
+        return os.path.join(os.environ.get("APPDATA", home), "RemindMe")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", "RemindMe")
+    return os.path.join(home, ".local", "share", "remindme")
+
+
+def get_data_path() -> str:
+    data_dir = get_data_dir()
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "reminders.json")
+
+
+def get_pid_path() -> str:
+    data_dir = get_data_dir()
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "remindme.pid")
+
+
 def load_reminders() -> dict:
+    data_path = get_data_path()
     try:
-        with open("reminders.json", "r") as file_handle:
+        with open(data_path, "r") as file_handle:
             data = json.load(file_handle)
     except FileNotFoundError:
         data = {"reminders": []}
@@ -40,7 +66,8 @@ def load_reminders() -> dict:
 
 
 def save_reminders(data: dict) -> None:
-    with open("reminders.json", "w") as file_handle:
+    data_path = get_data_path()
+    with open(data_path, "w") as file_handle:
         json.dump(data, file_handle, indent=4)
 
 
@@ -111,10 +138,31 @@ def build_target_datetime(details: dict) -> dt.datetime | None:
 
 
 def send_notification(title: str, message: str) -> bool:
-    if shutil.which("notify-send") is None:
-        return False
-    subprocess.run(["notify-send", title, message], check=False)
-    return True
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", title, message], check=False)
+        return True
+    if sys.platform == "darwin" and shutil.which("osascript"):
+        script = (
+            f'display notification "{message}" with title "{title}"'
+        )
+        subprocess.run(["osascript", "-e", script], check=False)
+        return True
+    if sys.platform.startswith("win") and shutil.which("powershell"):
+        command = (
+            "$title = '{0}'; $msg = '{1}'; "
+            "[reflection.assembly]::loadwithpartialname('System.Windows.Forms') | Out-Null; "
+            "[reflection.assembly]::loadwithpartialname('System.Drawing') | Out-Null; "
+            "$n = New-Object System.Windows.Forms.NotifyIcon; "
+            "$n.Icon = [System.Drawing.SystemIcons]::Information; "
+            "$n.BalloonTipTitle = $title; $n.BalloonTipText = $msg; "
+            "$n.Visible = $true; $n.ShowBalloonTip(10000); "
+            "Start-Sleep -Seconds 5; $n.Dispose();"
+        ).format(title.replace("'", "''"), message.replace("'", "''"))
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command], check=False
+        )
+        return True
+    return False
 
 
 def open_terminal_message(title: str, message: str) -> bool:
@@ -126,13 +174,20 @@ def open_terminal_message(title: str, message: str) -> bool:
     ]
     for binary, prefix in terminals:
         if shutil.which(binary):
-            cmd = prefix + ["bash", "-lc", f"echo '{title}: {message}'; read -r -p 'Press Enter to close'" ]
+            cmd = prefix + [
+                "bash",
+                "-lc",
+                f"echo '{title}: {message}'; read -r -p 'Press Enter to close'",
+            ]
             subprocess.Popen(cmd)
             return True
     return False
 
 
 def run_scheduler(poll_seconds: int = 30) -> None:
+    pid_path = get_pid_path()
+    with open(pid_path, "w") as file_handle:
+        file_handle.write(str(os.getpid()))
     while True:
         data = load_reminders()
         entries = get_reminder_entries(data)
@@ -162,8 +217,19 @@ def run_scheduler(poll_seconds: int = 30) -> None:
 
 
 def start_background_daemon() -> None:
-    script_path = os.path.abspath(__file__)
-    args = [sys.executable, script_path, "--daemon"]
+    pid_path = get_pid_path()
+    if os.path.exists(pid_path):
+        try:
+            with open(pid_path, "r") as file_handle:
+                pid = int(file_handle.read().strip())
+            if pid > 0:
+                if sys.platform.startswith("win"):
+                    return
+                os.kill(pid, 0)
+                return
+        except (OSError, ValueError):
+            pass
+    args = [sys.executable, "-m", "remindme.cli", "--daemon"]
     subprocess.Popen(
         args,
         start_new_session=True,
@@ -173,11 +239,14 @@ def start_background_daemon() -> None:
 
 
 def install_autostart() -> None:
+    if sys.platform.startswith("win"):
+        return
+    if sys.platform == "darwin":
+        return
     autostart_dir = os.path.expanduser("~/.config/autostart")
     os.makedirs(autostart_dir, exist_ok=True)
     desktop_path = os.path.join(autostart_dir, "remindme.desktop")
-    script_path = os.path.abspath(__file__)
-    exec_cmd = f"{sys.executable} {script_path} --daemon"
+    exec_cmd = "remindme --daemon"
 
     content = (
         "[Desktop Entry]\n"
@@ -189,21 +258,25 @@ def install_autostart() -> None:
     )
     with open(desktop_path, "w") as file_handle:
         file_handle.write(content)
-    print(f"Autostart entry written to {desktop_path}")
 
 
 def remove_autostart() -> None:
+    if sys.platform.startswith("win"):
+        return
+    if sys.platform == "darwin":
+        return
     desktop_path = os.path.expanduser("~/.config/autostart/remindme.desktop")
     if os.path.exists(desktop_path):
         os.remove(desktop_path)
-        print("Autostart entry removed.")
     else:
-        print("Autostart entry not found.")
+        return
 
 
 def select_reminders_with_curses(entries: list) -> list | None:
     if not entries:
         return []
+    if curses is None:
+        return None
 
     def run(stdscr):
         curses.use_default_colors()
@@ -247,6 +320,30 @@ def select_reminders_with_curses(entries: list) -> list | None:
     return curses.wrapper(run)
 
 
+def select_reminders_fallback(entries: list) -> list | None:
+    if not entries:
+        return []
+    print("Select reminders to delete (comma-separated numbers, blank to cancel):")
+    for idx, entry in enumerate(entries, start=1):
+        details = entry["details"]
+        date_str = details.get("date", "Unknown date")
+        hour = details.get("hour", 0)
+        minute = details.get("minute", 0)
+        print(f"  {idx}. {entry['message']} - {date_str} {int(hour):02d}:{int(minute):02d}")
+    raw = input("> ").strip()
+    if not raw:
+        return None
+    selections = set()
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk.isdigit():
+            continue
+        num = int(chunk)
+        if 1 <= num <= len(entries):
+            selections.add(num - 1)
+    return list(selections)
+
+
 def setReminder(raw_text: str) -> dict:
     text = raw_text.strip()
     remindersDict = {}
@@ -277,6 +374,7 @@ def setReminder(raw_text: str) -> dict:
     save_reminders(existing_data)
     return remindersDict
 
+
 def listReminders(raw_text: str):
     pattern_list = re.compile(r"^(?:remind\s+)?-list\s*$", re.IGNORECASE)
     match = pattern_list.match(raw_text.strip())
@@ -295,6 +393,7 @@ def listReminders(raw_text: str):
         minute = details.get("minute", 0)
         print(f"- {entry['message']} at {date_str} {int(hour):02d}:{int(minute):02d}")
 
+
 def deleteReminder():
     data = load_reminders()
     entries = get_reminder_entries(data)
@@ -303,6 +402,8 @@ def deleteReminder():
         return
 
     selections = select_reminders_with_curses(entries)
+    if selections is None:
+        selections = select_reminders_fallback(entries)
     if selections is None:
         print("Delete canceled.")
         return
@@ -320,50 +421,6 @@ def deleteReminder():
     save_reminders(data)
     print(f"Deleted {len(indices_to_remove)} reminder(s).")
 
-def mainScreen():
-    print('REMINDME!')
-    
-    print("\n REMINDER COMMANDS:")
-    print("1. -set <date> at <hour> <minute> as <message> - Set a reminder")
-    print("   Date: today | tomorrow | DD/MM | DD MM")
-    print("   Time: HH MM or HH:MM")
-    print("2. -list - List all reminders")
-    print("3. -delete - Delete reminders")
-    print("4. -install-autostart - Run reminders on login")
-    print("5. -remove-autostart - Disable autostart")
-    print("6. -daemon - Run scheduler in background now")
-    print("7. -exit - Exit the application")
-
-    cmd = input()
-    if cmd.startswith("-set"):
-        try:
-            remindersDict = setReminder(cmd)
-            for message, details in remindersDict.items():
-                date_str = details["date"]
-                hour = details["hour"]
-                minute = details["minute"]
-
-                print(
-                    f"Setting reminder for {date_str} at {hour:02d}:{minute:02d} with message: '{message}'"
-                )
-        except ValueError as e:
-            print(e)
-    elif cmd.lower() == "-list":
-        listReminders(cmd)
-    elif cmd.lower() == "-delete":
-        deleteReminder()
-    elif cmd.lower() == "-install-autostart":
-        install_autostart()
-    elif cmd.lower() == "-remove-autostart":
-        remove_autostart()
-    elif cmd.lower() in ("-daemon", "daemon"):
-        start_background_daemon()
-        print("Scheduler started in background.")
-    elif cmd.lower() == "-exit":
-        print("Exiting the application...")
-    else:
-        print("Unknown command. Please try again.")
-
 
 def print_help() -> None:
     print("RemindMe - command line reminder tool")
@@ -372,9 +429,6 @@ def print_help() -> None:
     print("  remindme -set <date> at <hour> <minute> as <message>")
     print("  remindme -list")
     print("  remindme -delete")
-    print("  remindme -daemon")
-    print("  remindme -install-autostart")
-    print("  remindme -remove-autostart")
     print("")
     print("Date formats:")
     print("  today | tomorrow | DD/MM | DD MM")
@@ -383,6 +437,8 @@ def print_help() -> None:
 
 
 def run_cli(argv: list) -> None:
+    start_background_daemon()
+    install_autostart()
     if len(argv) <= 1 or argv[1] in ("-h", "--help", "help"):
         print_help()
         return
@@ -400,7 +456,7 @@ def run_cli(argv: list) -> None:
                 date_str = details["date"]
                 hour = details["hour"]
                 minute = details["minute"]
-                print(
+                print(  
                     f"Setting reminder for {date_str} at {hour:02d}:{minute:02d} with message: '{message}'"
                 )
         except ValueError as exc:
@@ -413,22 +469,16 @@ def run_cli(argv: list) -> None:
     if command == "-delete":
         deleteReminder()
         return
-    if command in ("-daemon", "daemon"):
-        start_background_daemon()
-        print("Scheduler started in background.")
-        return
-    if command == "-install-autostart":
-        install_autostart()
-        return
-    if command == "-remove-autostart":
-        remove_autostart()
-        return
-
     print("Unknown command.")
     print_help()
 
-if __name__ == "__main__":
+
+def main() -> None:
     if "--daemon" in sys.argv:
         run_scheduler()
     else:
         run_cli(sys.argv)
+
+
+if __name__ == "__main__":
+    main()
