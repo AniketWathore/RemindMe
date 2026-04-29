@@ -1,5 +1,7 @@
 # RemindMe
 
+![RemindMe](img/remindme.png)
+
 RemindMe is a lightweight command line reminder tool that stores reminders locally
 and sends desktop notifications when they are due.
 
