@@ -423,7 +423,8 @@ def deleteReminder():
 
 
 def print_help() -> None:
-    print("RemindMe - command line reminder tool")
+    # print_banner()
+    print("command line reminder tool by github/AniketWathore")
     print("")
     print("Usage:")
     print("  remindme -set <date> at <hour> <minute> as <message>")
@@ -434,11 +435,27 @@ def print_help() -> None:
     print("  today | tomorrow | DD/MM | DD MM")
     print("Time formats:")
     print("  HH MM or HH:MM")
+    print("")
+    print("For example:")
+    print("  remindme -set today at 9 30 as 'Meeting with team'")
+
+
+def print_banner() -> None:
+    banner = r"""
+  _____                _           _ __  __      
+ |  __ \              (_)         | |  \/  |     
+ | |__) |___ _ __ ___  _ _ __   __| | \  / | ___ 
+ |  _  // _ \ '_ ` _ \| | '_ \ / _` | |\/| |/ _ \
+ | | \ \  __/ | | | | | | | | | (_| | |  | |  __/
+ |_|  \_\___|_| |_| |_|_|_| |_|\__,_|_|  |_|\___|
+"""
+    print(banner)
 
 
 def run_cli(argv: list) -> None:
     start_background_daemon()
     install_autostart()
+    print_banner()
     if len(argv) <= 1 or argv[1] in ("-h", "--help", "help"):
         print_help()
         return
